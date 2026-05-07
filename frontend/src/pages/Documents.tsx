@@ -8,7 +8,8 @@ import DocumentVersions from '@/components/DocumentVersions'
 import RenameModal from '@/components/RenameModal'
 import ActivityLog from '@/components/ActivityLog'
 import CommentsPanel from '@/components/CommentsPanel'
-import { FileText, Download, Eye, MoreVertical, Folder, HardDrive, FolderPlus, Home, ChevronRight, Trash2, FolderInput, Info, History, Search, Filter, X as CloseIcon, Edit, Activity, MessageSquare } from 'lucide-react'
+import ShareFolderModal from '@/components/ShareFolderModal'
+import { FileText, Download, Eye, MoreVertical, Folder, HardDrive, FolderPlus, Home, ChevronRight, Trash2, FolderInput, Info, History, Search, Filter, X as CloseIcon, Edit, Activity, MessageSquare, Share2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 
 interface Document {
@@ -55,6 +56,7 @@ const Documents = () => {
   const [storageUsed, setStorageUsed] = useState(0)
   const [showActivity, setShowActivity] = useState<{id: string, name: string} | null>(null)
   const [showComments, setShowComments] = useState<{id: string, name: string} | null>(null)
+  const [showShareFolder, setShowShareFolder] = useState<{id: string, name: string} | null>(null)
 
   useEffect(() => {
     fetchData()
@@ -370,22 +372,24 @@ const Documents = () => {
               Manage and organize your documents
             </p>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setShowCreateFolder(true)}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
-            >
-              <FolderPlus className="w-5 h-5 mr-2" />
-              New Folder
-            </button>
-            <button
-              onClick={() => setShowUpload(!showUpload)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
-            >
-              <FileText className="w-5 h-5 mr-2" />
-              {showUpload ? 'Hide Upload' : 'Upload Documents'}
-            </button>
-          </div>
+          {user?.role !== 'supplier' && (
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCreateFolder(true)}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+              >
+                <FolderPlus className="w-5 h-5 mr-2" />
+                New Folder
+              </button>
+              <button
+                onClick={() => setShowUpload(!showUpload)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+              >
+                <FileText className="w-5 h-5 mr-2" />
+                {showUpload ? 'Hide Upload' : 'Upload Documents'}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Stats Row */}
@@ -531,6 +535,18 @@ const Documents = () => {
             documentId={showComments.id}
             documentName={showComments.name}
             onClose={() => setShowComments(null)}
+          />
+        )}
+
+        {/* Share Folder Modal */}
+        {showShareFolder && (
+          <ShareFolderModal
+            folder={{id: showShareFolder.id, name: showShareFolder.name}}
+            onClose={() => setShowShareFolder(null)}
+            onSuccess={() => {
+              setShowShareFolder(null)
+              fetchData()
+            }}
           />
         )}
 
@@ -724,16 +740,32 @@ const Documents = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteFolder(folder.id)
-                          }}
-                          className="p-2 hover:bg-red-50 rounded text-red-600"
-                          title="Delete folder"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {(user?.role === 'admin' || user?.role === 'manager') && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setShowShareFolder({id: folder.id, name: folder.name})
+                              }}
+                              className="p-2 hover:bg-blue-50 rounded text-blue-600"
+                              title="Share folder"
+                            >
+                              <Share2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {user?.role !== 'supplier' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteFolder(folder.id)
+                              }}
+                              className="p-2 hover:bg-red-50 rounded text-red-600"
+                              title="Delete folder"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -760,17 +792,7 @@ const Documents = () => {
                         v{doc.currentVersion}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div className="flex items-center gap-2">
-                          <span>{formatDate(doc.uploadedAt)}</span>
-                          <div className="relative group">
-                            <Info className="w-4 h-4 text-gray-400 cursor-help" />
-                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-10">
-                              <div className="font-medium">Uploaded by</div>
-                              <div>{doc.uploadedBy}</div>
-                              <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
-                            </div>
-                          </div>
-                        </div>
+                        {formatDate(doc.uploadedAt)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center space-x-2">
@@ -788,20 +810,24 @@ const Documents = () => {
                           >
                             <History className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => setShowRename({type: 'document', id: doc.id, name: doc.name})}
-                            className="p-2 hover:bg-green-50 rounded text-green-600"
-                            title="Rename"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleMoveDocument(doc.id, doc.name)}
-                            className="p-2 hover:bg-blue-50 rounded text-blue-600"
-                            title="Move to folder"
-                          >
-                            <FolderInput className="w-4 h-4" />
-                          </button>
+                          {user?.role !== 'supplier' && (
+                            <>
+                              <button
+                                onClick={() => setShowRename({type: 'document', id: doc.id, name: doc.name})}
+                                className="p-2 hover:bg-green-50 rounded text-green-600"
+                                title="Rename"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleMoveDocument(doc.id, doc.name)}
+                                className="p-2 hover:bg-blue-50 rounded text-blue-600"
+                                title="Move to folder"
+                              >
+                                <FolderInput className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
                           <button
                             onClick={() => setShowActivity({id: doc.id, name: doc.name})}
                             className="p-2 hover:bg-indigo-50 rounded text-indigo-600"
@@ -857,16 +883,32 @@ const Documents = () => {
                   onClick={() => openFolder(folder.id)}
                   onContextMenu={(e) => handleContextMenu(e, 'folder', folder.id)}
                 >
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeleteFolder(folder.id)
-                    }}
-                    className="absolute top-2 right-2 p-1 opacity-0 group-hover:opacity-100 hover:bg-red-50 rounded text-red-600"
-                    title="Delete folder"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100">
+                    {(user?.role === 'admin' || user?.role === 'manager') && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setShowShareFolder({id: folder.id, name: folder.name})
+                        }}
+                        className="p-1 hover:bg-blue-50 rounded text-blue-600"
+                        title="Share folder"
+                      >
+                        <Share2 className="w-4 h-4" />
+                      </button>
+                    )}
+                    {user?.role !== 'supplier' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteFolder(folder.id)
+                        }}
+                        className="p-1 hover:bg-red-50 rounded text-red-600"
+                        title="Delete folder"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                   <div className="text-center mb-3">
                     <Folder className="w-12 h-12 text-yellow-500 mx-auto mb-2" />
                     <h3 className="text-sm font-medium text-gray-900 truncate">{folder.name}</h3>
@@ -918,17 +960,7 @@ const Documents = () => {
                     </div>
                     <div className="flex items-center justify-between">
                       <span>Uploaded:</span>
-                      <div className="flex items-center gap-1">
-                        <span>{formatDate(doc.uploadedAt)}</span>
-                        <div className="relative group/info">
-                          <Info className="w-3 h-3 text-gray-400 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all duration-200 whitespace-nowrap z-10">
-                            <div className="font-medium">Uploaded by</div>
-                            <div>{doc.uploadedBy}</div>
-                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
-                          </div>
-                        </div>
-                      </div>
+                      <span>{formatDate(doc.uploadedAt)}</span>
                     </div>
                   </div>
                   <div className="mt-3 flex items-center justify-center space-x-2">
@@ -952,16 +984,18 @@ const Documents = () => {
                     >
                       <History className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleMoveDocument(doc.id, doc.name)
-                      }}
-                      className="p-2 hover:bg-blue-50 rounded text-blue-600"
-                      title="Move to folder"
-                    >
-                      <FolderInput className="w-4 h-4" />
-                    </button>
+                    {user?.role !== 'supplier' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleMoveDocument(doc.id, doc.name)
+                        }}
+                        className="p-2 hover:bg-blue-50 rounded text-blue-600"
+                        title="Move to folder"
+                      >
+                        <FolderInput className="w-4 h-4" />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation()

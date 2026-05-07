@@ -244,6 +244,59 @@ router.get('/:documentId', authenticate, async (req, res) => {
 router.get('/', authenticate, async (req, res) => {
   try {
     const { folderId } = req.query;
+
+    // For suppliers: only show documents in assigned folders
+    if (req.user!.role === 'supplier') {
+      const userDoc = await db.collection('users').doc(req.user!.uid).get();
+      const userData = userDoc.data();
+      const assignedFolders = userData?.assignedFolders || [];
+
+      if (assignedFolders.length === 0) {
+        // No folders assigned, return empty
+        return res.json({ documents: [], count: 0 });
+      }
+
+      // If specific folderId requested, check if it's in assignedFolders
+      if (folderId && !assignedFolders.includes(folderId as string)) {
+        return res.status(403).json({ error: 'Access denied to this folder' });
+      }
+
+      // Query documents in assigned folders
+      let query = db
+        .collection('documents')
+        .where('tenantId', '==', req.user!.tenantId);
+
+      if (folderId) {
+        query = query.where('folderId', '==', folderId);
+      } else {
+        // Show documents from all assigned folders at root level
+        query = query.where('folderId', 'in', assignedFolders);
+      }
+
+      const snapshot = await query.orderBy('createdAt', 'desc').get();
+
+      const documents = await Promise.all(
+        snapshot.docs.map(async (doc) => {
+          const data = doc.data();
+          const versionsSnap = await db
+            .collection('documentVersions')
+            .where('documentId', '==', doc.id)
+            .get();
+
+          return {
+            id: doc.id,
+            ...data,
+            versionCount: versionsSnap.size,
+            createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+            updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
+          };
+        })
+      );
+
+      return res.json({ documents, count: documents.length });
+    }
+
+    // For non-suppliers: normal access (all documents in tenant)
     let query = db
       .collection('documents')
       .where('tenantId', '==', req.user!.tenantId);
@@ -397,6 +450,11 @@ router.get('/:documentId/download', authenticate, async (req, res) => {
  */
 router.patch('/:documentId/rename', authenticate, async (req, res) => {
   try {
+    // Suppliers cannot rename documents
+    if (req.user!.role === 'supplier') {
+      return res.status(403).json({ error: 'Suppliers cannot rename documents' });
+    }
+
     const { documentId } = req.params;
     const { name } = req.body;
 
@@ -427,6 +485,11 @@ router.patch('/:documentId/rename', authenticate, async (req, res) => {
  */
 router.patch('/:documentId/move', authenticate, async (req, res) => {
   try {
+    // Suppliers cannot move documents
+    if (req.user!.role === 'supplier') {
+      return res.status(403).json({ error: 'Suppliers cannot move documents' });
+    }
+
     const { documentId } = req.params;
     const { folderId } = req.body;
 

@@ -236,6 +236,43 @@ router.get('/:documentId', auth_1.authenticate, async (req, res) => {
 router.get('/', auth_1.authenticate, async (req, res) => {
     try {
         const { folderId } = req.query;
+        // For suppliers: only show documents in assigned folders
+        if (req.user.role === 'supplier') {
+            const userDoc = await firebase_1.db.collection('users').doc(req.user.uid).get();
+            const userData = userDoc.data();
+            const assignedFolders = (userData === null || userData === void 0 ? void 0 : userData.assignedFolders) || [];
+            if (assignedFolders.length === 0) {
+                // No folders assigned, return empty
+                return res.json({ documents: [], count: 0 });
+            }
+            // If specific folderId requested, check if it's in assignedFolders
+            if (folderId && !assignedFolders.includes(folderId)) {
+                return res.status(403).json({ error: 'Access denied to this folder' });
+            }
+            // Query documents in assigned folders
+            let query = firebase_1.db
+                .collection('documents')
+                .where('tenantId', '==', req.user.tenantId);
+            if (folderId) {
+                query = query.where('folderId', '==', folderId);
+            }
+            else {
+                // Show documents from all assigned folders at root level
+                query = query.where('folderId', 'in', assignedFolders);
+            }
+            const snapshot = await query.orderBy('createdAt', 'desc').get();
+            const documents = await Promise.all(snapshot.docs.map(async (doc) => {
+                var _a, _b, _c, _d, _e, _f;
+                const data = doc.data();
+                const versionsSnap = await firebase_1.db
+                    .collection('documentVersions')
+                    .where('documentId', '==', doc.id)
+                    .get();
+                return Object.assign(Object.assign({ id: doc.id }, data), { versionCount: versionsSnap.size, createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt });
+            }));
+            return res.json({ documents, count: documents.length });
+        }
+        // For non-suppliers: normal access (all documents in tenant)
         let query = firebase_1.db
             .collection('documents')
             .where('tenantId', '==', req.user.tenantId);
@@ -363,6 +400,10 @@ router.get('/:documentId/download', auth_1.authenticate, async (req, res) => {
 router.patch('/:documentId/rename', auth_1.authenticate, async (req, res) => {
     var _a, _b;
     try {
+        // Suppliers cannot rename documents
+        if (req.user.role === 'supplier') {
+            return res.status(403).json({ error: 'Suppliers cannot rename documents' });
+        }
         const { documentId } = req.params;
         const { name } = req.body;
         if (!name || !name.trim()) {
@@ -389,6 +430,10 @@ router.patch('/:documentId/rename', auth_1.authenticate, async (req, res) => {
 router.patch('/:documentId/move', auth_1.authenticate, async (req, res) => {
     var _a, _b;
     try {
+        // Suppliers cannot move documents
+        if (req.user.role === 'supplier') {
+            return res.status(403).json({ error: 'Suppliers cannot move documents' });
+        }
         const { documentId } = req.params;
         const { folderId } = req.body;
         const docSnap = await firebase_1.db.collection('documents').doc(documentId).get();

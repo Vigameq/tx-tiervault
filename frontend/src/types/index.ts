@@ -81,7 +81,8 @@ export interface User {
   email: string
   displayName: string
   tenantId: string
-  role: 'admin' | 'manager' | 'editor' | 'viewer'
+  role: 'admin' | 'manager' | 'editor' | 'viewer' | 'supplier'
+  assignedFolders?: string[]  // For suppliers - restrict access to specific folders
   isActive: boolean
   lastLoginAt: Date | null
   createdAt: Date

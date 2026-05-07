@@ -8,6 +8,7 @@ const Login = lazy(() => import('./pages/auth/Login'))
 const Register = lazy(() => import('./pages/auth/Register'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Documents = lazy(() => import('./pages/Documents'))
+const Users = lazy(() => import('./pages/Users'))
 const Settings = lazy(() => import('./pages/Settings'))
 
 // Loading component
@@ -69,6 +70,11 @@ const AppRoutes = () => {
         <Route path="/documents/:folderId" element={
           <ProtectedRoute>
             <Documents />
+          </ProtectedRoute>
+        } />
+        <Route path="/users" element={
+          <ProtectedRoute>
+            <Users />
           </ProtectedRoute>
         } />
         <Route path="/settings" element={

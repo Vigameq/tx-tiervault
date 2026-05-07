@@ -47,13 +47,13 @@ router.use(express_1.default.json());
  * Register new user (tenant admin creates users)
  */
 router.post('/register', auth_1.authenticate, async (req, res) => {
-    var _a, _b, _c;
+    var _a, _b;
     try {
-        const { email, password, displayName, role = 'viewer' } = req.body;
+        const { email, password, displayName, role = 'viewer', assignedFolders = [] } = req.body;
         const tenantId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.tenantId;
-        // Only admin and manager can create users
-        if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) !== 'admin' && ((_c = req.user) === null || _c === void 0 ? void 0 : _c.role) !== 'manager') {
-            return res.status(403).json({ error: 'Insufficient permissions' });
+        // Only admin can create users
+        if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) !== 'admin') {
+            return res.status(403).json({ error: 'Only admin can create users' });
         }
         // Create Firebase user
         const userRecord = await firebase_1.auth.createUser({
@@ -62,7 +62,7 @@ router.post('/register', auth_1.authenticate, async (req, res) => {
             displayName,
         });
         // Create user document in Firestore
-        await firebase_1.db.collection('users').doc(userRecord.uid).set({
+        const userData = {
             tenantId,
             role,
             displayName: displayName || email.split('@')[0],
@@ -71,7 +71,12 @@ router.post('/register', auth_1.authenticate, async (req, res) => {
             lastLoginAt: null,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        };
+        // Add assignedFolders for suppliers
+        if (role === 'supplier' && assignedFolders.length > 0) {
+            userData.assignedFolders = assignedFolders;
+        }
+        await firebase_1.db.collection('users').doc(userRecord.uid).set(userData);
         res.status(201).json({
             message: 'User created successfully',
             userId: userRecord.uid,

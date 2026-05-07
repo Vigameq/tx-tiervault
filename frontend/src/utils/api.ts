@@ -419,3 +419,223 @@ export const getDashboardAnalytics = async () => {
 
   return response.json()
 }
+
+// User Management APIs
+export const getUsers = async () => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/users`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch users')
+  }
+
+  return response.json()
+}
+
+export const createUser = async (userData: {
+  email: string
+  password: string
+  displayName: string
+  role: string
+  assignedFolders?: string[]
+}) => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(userData),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || 'Failed to create user')
+  }
+
+  return response.json()
+}
+
+export const updateUser = async (userId: string, userData: {
+  displayName: string
+  role: string
+  isActive: boolean
+  assignedFolders?: string[]
+}) => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(userData),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || 'Failed to update user')
+  }
+
+  return response.json()
+}
+
+export const deleteUser = async (userId: string) => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || 'Failed to delete user')
+  }
+
+  return response.json()
+}
+
+export const getSuppliers = async () => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/users/suppliers`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch suppliers')
+  }
+
+  return response.json()
+}
+
+// Folder Sharing APIs
+export const shareFolderWithUsers = async (folderId: string, userIds: string[]) => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/folders/${folderId}/share`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ userIds }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || 'Failed to share folder')
+  }
+
+  return response.json()
+}
+
+export const unshareFolderFromUsers = async (folderId: string, userIds: string[]) => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/folders/${folderId}/unshare`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ userIds }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || 'Failed to unshare folder')
+  }
+
+  return response.json()
+}
+
+export const getFolderSharedWith = async (folderId: string) => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/folders/${folderId}/shared-with`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch shared users')
+  }
+
+  return response.json()
+}
+
+// Settings APIs
+export const getCurrentUserProfile = async () => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/users/me/profile`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch profile')
+  }
+
+  return response.json()
+}
+
+export const updateCurrentUserProfile = async (data: {
+  displayName?: string
+  preferences?: any
+  notificationSettings?: any
+}) => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/users/me/profile`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || 'Failed to update profile')
+  }
+
+  return response.json()
+}
+
+export const changePassword = async (currentPassword: string, newPassword: string) => {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE_URL}/users/me/change-password`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || 'Failed to change password')
+  }
+
+  return response.json()
+}

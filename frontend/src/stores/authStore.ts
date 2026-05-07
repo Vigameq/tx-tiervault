@@ -5,7 +5,8 @@ export interface User {
   email: string | null
   displayName: string | null
   tenantId: string
-  role: 'admin' | 'manager' | 'editor' | 'viewer'
+  role: 'admin' | 'manager' | 'editor' | 'viewer' | 'supplier'
+  assignedFolders?: string[]
 }
 
 interface AuthState {

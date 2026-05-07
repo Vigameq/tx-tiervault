@@ -13,12 +13,12 @@ router.use(express.json());
  */
 router.post('/register', authenticate, async (req, res) => {
   try {
-    const { email, password, displayName, role = 'viewer' } = req.body;
+    const { email, password, displayName, role = 'viewer', assignedFolders = [] } = req.body;
     const tenantId = req.user?.tenantId;
 
-    // Only admin and manager can create users
-    if (req.user?.role !== 'admin' && req.user?.role !== 'manager') {
-      return res.status(403).json({ error: 'Insufficient permissions' });
+    // Only admin can create users
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can create users' });
     }
 
     // Create Firebase user
@@ -29,7 +29,7 @@ router.post('/register', authenticate, async (req, res) => {
     });
 
     // Create user document in Firestore
-    await db.collection('users').doc(userRecord.uid).set({
+    const userData: any = {
       tenantId,
       role,
       displayName: displayName || email.split('@')[0],
@@ -38,7 +38,14 @@ router.post('/register', authenticate, async (req, res) => {
       lastLoginAt: null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+
+    // Add assignedFolders for suppliers
+    if (role === 'supplier' && assignedFolders.length > 0) {
+      userData.assignedFolders = assignedFolders;
+    }
+
+    await db.collection('users').doc(userRecord.uid).set(userData);
 
     res.status(201).json({
       message: 'User created successfully',

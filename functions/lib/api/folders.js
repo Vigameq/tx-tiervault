@@ -48,6 +48,10 @@ router.use(express_1.default.json());
  */
 router.post('/', auth_1.authenticate, async (req, res) => {
     try {
+        // Suppliers cannot create folders
+        if (req.user.role === 'supplier') {
+            return res.status(403).json({ error: 'Suppliers cannot create folders' });
+        }
         const { name, parentId = null } = req.body;
         const tenantId = req.user.tenantId;
         const userId = req.user.uid;
@@ -94,6 +98,31 @@ router.get('/', auth_1.authenticate, async (req, res) => {
     try {
         const { parentId, all } = req.query;
         const tenantId = req.user.tenantId;
+        // For suppliers: only show assigned folders
+        if (req.user.role === 'supplier') {
+            const userDoc = await firebase_1.db.collection('users').doc(req.user.uid).get();
+            const userData = userDoc.data();
+            const assignedFolders = (userData === null || userData === void 0 ? void 0 : userData.assignedFolders) || [];
+            if (assignedFolders.length === 0) {
+                return res.json({ folders: [], count: 0 });
+            }
+            // If specific parentId requested, check access
+            if (parentId && !assignedFolders.includes(parentId)) {
+                return res.status(403).json({ error: 'Access denied to this folder' });
+            }
+            // Fetch only assigned folders
+            const foldersSnap = await firebase_1.db.collection('folders')
+                .where('tenantId', '==', tenantId)
+                .where(admin.firestore.FieldPath.documentId(), 'in', assignedFolders)
+                .get();
+            const folders = foldersSnap.docs.map((doc) => {
+                var _a, _b, _c, _d, _e, _f;
+                const data = doc.data();
+                return Object.assign(Object.assign({ id: doc.id }, data), { createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt });
+            });
+            return res.json({ folders, count: folders.length });
+        }
+        // For non-suppliers: normal access
         let query = firebase_1.db.collection('folders').where('tenantId', '==', tenantId);
         // If 'all' parameter is set, return all folders regardless of parent
         // Otherwise, filter by parentId
@@ -154,6 +183,10 @@ router.get('/:folderId', auth_1.authenticate, async (req, res) => {
 router.patch('/:folderId/rename', auth_1.authenticate, async (req, res) => {
     var _a, _b;
     try {
+        // Suppliers cannot rename folders
+        if (req.user.role === 'supplier') {
+            return res.status(403).json({ error: 'Suppliers cannot rename folders' });
+        }
         const { folderId } = req.params;
         const { name } = req.body;
         if (!name || !name.trim()) {
@@ -203,6 +236,10 @@ router.put('/:folderId', auth_1.authenticate, async (req, res) => {
 router.delete('/:folderId', auth_1.authenticate, async (req, res) => {
     var _a, _b;
     try {
+        // Suppliers cannot delete folders
+        if (req.user.role === 'supplier') {
+            return res.status(403).json({ error: 'Suppliers cannot delete folders' });
+        }
         const { folderId } = req.params;
         const folderSnap = await firebase_1.db.collection('folders').doc(folderId).get();
         if (!folderSnap.exists || ((_a = folderSnap.data()) === null || _a === void 0 ? void 0 : _a.tenantId) !== ((_b = req.user) === null || _b === void 0 ? void 0 : _b.tenantId)) {
@@ -231,6 +268,146 @@ router.delete('/:folderId', auth_1.authenticate, async (req, res) => {
     }
     catch (error) {
         console.error('Delete folder error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+/**
+ * Share folder with suppliers (manager/admin only)
+ */
+router.post('/:folderId/share', auth_1.authenticate, async (req, res) => {
+    var _a, _b, _c;
+    try {
+        // Only manager and admin can share folders
+        if (req.user.role !== 'manager' && req.user.role !== 'admin') {
+            return res.status(403).json({ error: 'Only managers and admins can share folders' });
+        }
+        const { folderId } = req.params;
+        const { userIds } = req.body; // Array of user IDs to share with
+        if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({ error: 'User IDs are required' });
+        }
+        // Verify folder exists and belongs to tenant
+        const folderSnap = await firebase_1.db.collection('folders').doc(folderId).get();
+        if (!folderSnap.exists || ((_a = folderSnap.data()) === null || _a === void 0 ? void 0 : _a.tenantId) !== ((_b = req.user) === null || _b === void 0 ? void 0 : _b.tenantId)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        // Update each user's assignedFolders
+        const batch = firebase_1.db.batch();
+        const errors = [];
+        for (const userId of userIds) {
+            const userSnap = await firebase_1.db.collection('users').doc(userId).get();
+            if (!userSnap.exists) {
+                errors.push(`User ${userId} not found`);
+                continue;
+            }
+            const userData = userSnap.data();
+            // Verify user is in same tenant
+            if ((userData === null || userData === void 0 ? void 0 : userData.tenantId) !== ((_c = req.user) === null || _c === void 0 ? void 0 : _c.tenantId)) {
+                errors.push(`User ${userId} not in same tenant`);
+                continue;
+            }
+            // Only share with suppliers
+            if ((userData === null || userData === void 0 ? void 0 : userData.role) !== 'supplier') {
+                errors.push(`User ${userId} is not a supplier`);
+                continue;
+            }
+            // Add folder to assignedFolders if not already present
+            const assignedFolders = userData.assignedFolders || [];
+            if (!assignedFolders.includes(folderId)) {
+                assignedFolders.push(folderId);
+                batch.update(firebase_1.db.collection('users').doc(userId), {
+                    assignedFolders,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            }
+        }
+        await batch.commit();
+        if (errors.length > 0) {
+            return res.status(207).json({
+                message: 'Folder shared with some users',
+                errors
+            });
+        }
+        res.json({ message: 'Folder shared successfully' });
+    }
+    catch (error) {
+        console.error('Share folder error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+/**
+ * Unshare folder from suppliers (manager/admin only)
+ */
+router.post('/:folderId/unshare', auth_1.authenticate, async (req, res) => {
+    var _a, _b;
+    try {
+        // Only manager and admin can unshare folders
+        if (req.user.role !== 'manager' && req.user.role !== 'admin') {
+            return res.status(403).json({ error: 'Only managers and admins can unshare folders' });
+        }
+        const { folderId } = req.params;
+        const { userIds } = req.body; // Array of user IDs to unshare from
+        if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({ error: 'User IDs are required' });
+        }
+        // Verify folder exists and belongs to tenant
+        const folderSnap = await firebase_1.db.collection('folders').doc(folderId).get();
+        if (!folderSnap.exists || ((_a = folderSnap.data()) === null || _a === void 0 ? void 0 : _a.tenantId) !== ((_b = req.user) === null || _b === void 0 ? void 0 : _b.tenantId)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        // Update each user's assignedFolders
+        const batch = firebase_1.db.batch();
+        for (const userId of userIds) {
+            const userSnap = await firebase_1.db.collection('users').doc(userId).get();
+            if (userSnap.exists) {
+                const userData = userSnap.data();
+                const assignedFolders = ((userData === null || userData === void 0 ? void 0 : userData.assignedFolders) || []).filter((id) => id !== folderId);
+                batch.update(firebase_1.db.collection('users').doc(userId), {
+                    assignedFolders,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            }
+        }
+        await batch.commit();
+        res.json({ message: 'Folder unshared successfully' });
+    }
+    catch (error) {
+        console.error('Unshare folder error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+/**
+ * Get users who have access to a folder (manager/admin only)
+ */
+router.get('/:folderId/shared-with', auth_1.authenticate, async (req, res) => {
+    var _a, _b, _c;
+    try {
+        // Only manager and admin can view sharing info
+        if (req.user.role !== 'manager' && req.user.role !== 'admin') {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        const { folderId } = req.params;
+        // Verify folder exists and belongs to tenant
+        const folderSnap = await firebase_1.db.collection('folders').doc(folderId).get();
+        if (!folderSnap.exists || ((_a = folderSnap.data()) === null || _a === void 0 ? void 0 : _a.tenantId) !== ((_b = req.user) === null || _b === void 0 ? void 0 : _b.tenantId)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        // Find all users who have this folder in their assignedFolders
+        const usersSnap = await firebase_1.db
+            .collection('users')
+            .where('tenantId', '==', (_c = req.user) === null || _c === void 0 ? void 0 : _c.tenantId)
+            .where('assignedFolders', 'array-contains', folderId)
+            .get();
+        const users = usersSnap.docs.map((doc) => ({
+            id: doc.id,
+            email: doc.data().email,
+            displayName: doc.data().displayName,
+            role: doc.data().role,
+        }));
+        res.json({ users, count: users.length });
+    }
+    catch (error) {
+        console.error('Get shared users error:', error);
         res.status(500).json({ error: error.message });
     }
 });

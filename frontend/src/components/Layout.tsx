@@ -33,7 +33,7 @@ const Layout = ({ children }: LayoutProps) => {
   ]
 
   // Add admin-only links
-  if (user?.role === 'admin' || user?.role === 'manager') {
+  if (user?.role === 'admin') {
     navigation.push({ name: 'Users', href: '/users', icon: Users })
   }
 
