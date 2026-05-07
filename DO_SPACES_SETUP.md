@@ -1,0 +1,273 @@
+# Digital Ocean Spaces Configuration
+
+## ✅ Configuration Completed
+
+Your Digital Ocean Spaces settings have been configured:
+
+- **Region**: Singapore (sgp1)
+- **Endpoint**: `sgp1.digitaloceanspaces.com`
+- **Bucket Name**: `tiervault`
+- **Access Key ID**: `DO00DPTMC936A9MEK98V`
+- **Access Key Name**: `tierx-bucket`
+
+## 🔐 Missing: Secret Access Key
+
+**⚠️ IMPORTANT:** You need to provide your **Secret Access Key**
+
+The Secret Access Key was shown only once when you generated the key. If you don't have it:
+
+### Option 1: Find the Secret Key
+- Check your password manager or notes where you saved it
+
+### Option 2: Generate a New Key
+1. Go to: https://cloud.digitalocean.com/account/api/spaces
+2. Find your key: `tierx-bucket`
+3. Click **Delete** (if you lost the secret)
+4. Click **Generate New Key**
+5. Name: `TierVault Backend`
+6. **Copy both the Access Key and Secret Key immediately!**
+
+### Update .env Files
+
+Once you have the Secret Key:
+
+**1. Update project .env:**
+```bash
+nano /Users/nithingangadhar/Documents/GitHub/tx-tiervault/.env
+```
+
+Find this line:
+```
+DO_SPACES_SECRET=your_secret_key_here
+```
+
+Replace with:
+```
+DO_SPACES_SECRET=your_actual_secret_key
+```
+
+**2. Update functions .env:**
+```bash
+nano /Users/nithingangadhar/Documents/GitHub/tx-tiervault/functions/.env
+```
+
+Same change as above.
+
+## 🔧 Configure CORS (Required!)
+
+To allow file uploads from your frontend, you need to configure CORS:
+
+### Method 1: Using Digital Ocean Console
+
+1. Go to: https://cloud.digitalocean.com/spaces
+2. Click on your bucket: `tiervault`
+3. Click **Settings** tab
+4. Scroll to **CORS Configurations**
+5. Click **Add**
+6. Add this configuration:
+
+```json
+{
+  "AllowedOrigins": [
+    "http://localhost:5173",
+    "http://localhost:5000",
+    "https://tiervault-tx.web.app",
+    "https://tiervault-tx.firebaseapp.com"
+  ],
+  "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+  "AllowedHeaders": ["*"],
+  "MaxAgeSeconds": 3000
+}
+```
+
+### Method 2: Using API/CLI (if you have doctl installed)
+
+```bash
+# Install doctl (if not installed)
+brew install doctl  # macOS
+# or download from: https://github.com/digitalocean/doctl/releases
+
+# Authenticate
+doctl auth init
+
+# Create CORS config file
+cat > cors.json <<EOF
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": [
+        "http://localhost:5173",
+        "http://localhost:5000",
+        "https://tiervault-tx.web.app",
+        "https://tiervault-tx.firebaseapp.com"
+      ],
+      "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}
+EOF
+
+# Apply CORS configuration
+doctl compute cdn put-cors tiervault --file cors.json --region sgp1
+```
+
+## 🔒 Set Bucket Permissions
+
+Your bucket should be **Private** (not publicly readable):
+
+1. In Digital Ocean Spaces console
+2. Go to bucket settings
+3. Under **File Listing**: Select **Private**
+4. Under **Permissions**: Keep as **Private** (we'll use signed URLs)
+
+## 🧪 Test Configuration
+
+Once you've added the Secret Key and configured CORS, test the connection:
+
+### Create a test script:
+
+```bash
+cd /Users/nithingangadhar/Documents/GitHub/tx-tiervault/functions
+cat > test-spaces.js <<EOF
+const AWS = require('aws-sdk');
+require('dotenv').config();
+
+const spacesEndpoint = new AWS.Endpoint(process.env.DO_SPACES_ENDPOINT);
+const s3 = new AWS.S3({
+  endpoint: spacesEndpoint,
+  accessKeyId: process.env.DO_SPACES_KEY,
+  secretAccessKey: process.env.DO_SPACES_SECRET,
+  region: process.env.DO_SPACES_REGION
+});
+
+// Test: List buckets
+s3.listBuckets((err, data) => {
+  if (err) {
+    console.error('❌ Error connecting to Spaces:', err.message);
+  } else {
+    console.log('✅ Connected to Digital Ocean Spaces!');
+    console.log('Buckets:', data.Buckets.map(b => b.Name));
+  }
+});
+
+// Test: Upload a test file
+const testContent = 'Hello from TierVault!';
+const params = {
+  Bucket: process.env.DO_SPACES_BUCKET,
+  Key: 'test/hello.txt',
+  Body: testContent,
+  ACL: 'private'
+};
+
+s3.putObject(params, (err, data) => {
+  if (err) {
+    console.error('❌ Error uploading test file:', err.message);
+  } else {
+    console.log('✅ Test file uploaded successfully!');
+    console.log('ETag:', data.ETag);
+  }
+});
+EOF
+
+# Run test
+node test-spaces.js
+```
+
+Expected output:
+```
+✅ Connected to Digital Ocean Spaces!
+Buckets: [ 'tiervault' ]
+✅ Test file uploaded successfully!
+ETag: "abc123..."
+```
+
+## 📋 Configuration Checklist
+
+- [ ] Added Secret Access Key to `.env`
+- [ ] Added Secret Access Key to `functions/.env`
+- [ ] Configured CORS on Spaces bucket
+- [ ] Set bucket to Private
+- [ ] Tested connection with test script
+- [ ] Verified file upload works
+
+## 🌍 Your Spaces URLs
+
+Once configured, your files will be accessible at:
+
+- **Direct URL**: `https://tiervault.sgp1.digitaloceanspaces.com/{path}`
+- **CDN URL** (if enabled): `https://tiervault.sgp1.cdn.digitaloceanspaces.com/{path}`
+
+**Note:** Direct access will be blocked (private bucket). Files will be accessed via signed URLs generated by your backend.
+
+## 🔐 Security Best Practices
+
+1. ✅ **Never commit** `.env` files to Git (already in .gitignore)
+2. ✅ Keep Secret Key secure - treat like a password
+3. ✅ Use Private bucket (not public)
+4. ✅ Access files only via signed URLs (time-limited)
+5. ✅ Enable CDN for faster global access
+6. ✅ Set up lifecycle rules for old versions (optional)
+
+## 💰 Cost Estimate
+
+**Digital Ocean Spaces Pricing:**
+- **$5/month** flat rate includes:
+  - 250 GB storage
+  - 1 TB outbound transfer
+- Additional storage: $0.02/GB/month
+- Additional transfer: $0.01/GB
+
+**Estimated costs:**
+- Development: $5/month
+- Production (small): $5-10/month
+- Production (medium): $10-25/month
+
+## 🆘 Troubleshooting
+
+### "Access Denied" error
+- Check Secret Key is correct
+- Verify Access Key ID is correct
+- Check bucket name matches
+
+### "CORS error"
+- Make sure CORS is configured
+- Check allowed origins include your frontend URL
+- Verify allowed methods include PUT/POST
+
+### "Bucket not found"
+- Verify bucket name: `tiervault`
+- Check region: `sgp1`
+- Make sure bucket was created successfully
+
+---
+
+## ✅ Next Steps
+
+Once Digital Ocean Spaces is fully configured:
+
+1. **Complete Firebase Configuration**
+   - Get Firebase web app config
+   - Update `.env` with Firebase credentials
+
+2. **Install Dependencies**
+   ```bash
+   cd frontend && npm install
+   cd ../functions && npm install
+   ```
+
+3. **Start Development**
+   ```bash
+   firebase emulators:start  # Terminal 1
+   cd frontend && npm run dev  # Terminal 2
+   ```
+
+4. **Test File Upload**
+   - Log in to the app
+   - Try uploading a test document
+   - Verify it appears in Spaces
+
+---
+
+**Need the Secret Key?** Let me know and I'll help you regenerate it or update the configuration!
