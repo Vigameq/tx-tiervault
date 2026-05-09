@@ -9,7 +9,7 @@ import RenameModal from '@/components/RenameModal'
 import ActivityLog from '@/components/ActivityLog'
 import CommentsPanel from '@/components/CommentsPanel'
 import ShareFolderModal from '@/components/ShareFolderModal'
-import { FileText, Download, Eye, MoreVertical, Folder, HardDrive, FolderPlus, Home, ChevronRight, Trash2, FolderInput, Info, History, Search, Filter, X as CloseIcon, Edit, Activity, MessageSquare, Share2 } from 'lucide-react'
+import { FileText, Download, Eye, MoreVertical, Folder, HardDrive, FolderPlus, Home, ChevronRight, Trash2, FolderInput, Info, History, Search, Filter, X as CloseIcon, Edit, Activity, MessageSquare, Share2, Users } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 
 interface Document {
@@ -30,6 +30,11 @@ interface FolderItem {
   path: string
   parentId?: string
   createdAt: Date
+  sharedWith?: Array<{
+    id: string
+    displayName: string
+    email: string
+  }>
 }
 
 const Documents = () => {
@@ -161,6 +166,7 @@ const Documents = () => {
         path: folder.path,
         parentId: folder.parentId,
         createdAt: new Date(folder.createdAt),
+        sharedWith: folder.sharedWith || [],
       }))
 
       setFolders(folds)
@@ -733,8 +739,28 @@ const Documents = () => {
                       <td className="px-6 py-4 whitespace-nowrap" colSpan={4}>
                         <div className="flex items-center">
                           <Folder className="w-6 h-6 text-yellow-500 mr-3" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{folder.name}</div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-900">{folder.name}</span>
+                              {folder.sharedWith && folder.sharedWith.length > 0 && (
+                                <div
+                                  className="group relative inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full cursor-help"
+                                  title={`Shared with: ${folder.sharedWith.map(s => s.displayName).join(', ')}`}
+                                >
+                                  <Users className="w-3 h-3" />
+                                  <span>{folder.sharedWith.length}</span>
+                                  <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-48 bg-gray-900 text-white text-xs rounded py-2 px-3">
+                                    <div className="font-semibold mb-1">Shared with:</div>
+                                    {folder.sharedWith.map((supplier) => (
+                                      <div key={supplier.id} className="py-0.5">
+                                        {supplier.displayName}
+                                      </div>
+                                    ))}
+                                    <div className="absolute left-4 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                             <div className="text-sm text-gray-500">{folder.path}</div>
                           </div>
                         </div>
@@ -754,16 +780,28 @@ const Documents = () => {
                             </button>
                           )}
                           {user?.role !== 'supplier' && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDeleteFolder(folder.id)
-                              }}
-                              className="p-2 hover:bg-red-50 rounded text-red-600"
-                              title="Delete folder"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setShowRename({type: 'folder', id: folder.id, name: folder.name})
+                                }}
+                                className="p-2 hover:bg-green-50 rounded text-green-600"
+                                title="Rename folder"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteFolder(folder.id)
+                                }}
+                                className="p-2 hover:bg-red-50 rounded text-red-600"
+                                title="Delete folder"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -897,21 +935,53 @@ const Documents = () => {
                       </button>
                     )}
                     {user?.role !== 'supplier' && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDeleteFolder(folder.id)
-                        }}
-                        className="p-1 hover:bg-red-50 rounded text-red-600"
-                        title="Delete folder"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setShowRename({type: 'folder', id: folder.id, name: folder.name})
+                          }}
+                          className="p-1 hover:bg-green-50 rounded text-green-600"
+                          title="Rename folder"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteFolder(folder.id)
+                          }}
+                          className="p-1 hover:bg-red-50 rounded text-red-600"
+                          title="Delete folder"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
                     )}
                   </div>
                   <div className="text-center mb-3">
                     <Folder className="w-12 h-12 text-yellow-500 mx-auto mb-2" />
-                    <h3 className="text-sm font-medium text-gray-900 truncate">{folder.name}</h3>
+                    <div className="flex items-center justify-center gap-2">
+                      <h3 className="text-sm font-medium text-gray-900 truncate">{folder.name}</h3>
+                      {folder.sharedWith && folder.sharedWith.length > 0 && (
+                        <div
+                          className="group relative inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full cursor-help flex-shrink-0"
+                          title={`Shared with: ${folder.sharedWith.map(s => s.displayName).join(', ')}`}
+                        >
+                          <Users className="w-3 h-3" />
+                          <span>{folder.sharedWith.length}</span>
+                          <div className="absolute left-1/2 transform -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-10 w-48 bg-gray-900 text-white text-xs rounded py-2 px-3">
+                            <div className="font-semibold mb-1">Shared with:</div>
+                            {folder.sharedWith.map((supplier) => (
+                              <div key={supplier.id} className="py-0.5">
+                                {supplier.displayName}
+                              </div>
+                            ))}
+                            <div className="absolute left-1/2 transform -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="text-xs text-gray-500 text-center">
                     {formatDate(folder.createdAt)}

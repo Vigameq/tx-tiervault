@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth, connectAuthEmulator } from 'firebase/auth'
+import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence } from 'firebase/auth'
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
 
@@ -19,6 +19,11 @@ const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
 export const db = getFirestore(app)
 export const functions = getFunctions(app)
+
+// Set auth persistence to LOCAL (survives page refresh and browser close)
+setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.error('Error setting auth persistence:', error)
+})
 
 // Connect to emulators in development
 if (import.meta.env.DEV) {

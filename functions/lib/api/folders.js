@@ -134,19 +134,70 @@ router.get('/', auth_1.authenticate, async (req, res) => {
                 query = query.where('parentId', '==', null);
             }
             const snapshot = await query.orderBy('createdAt', 'desc').get();
+            const folderIds = snapshot.docs.map(doc => doc.id);
+            // Get sharing information for all folders
+            const sharingInfo = {};
+            if (folderIds.length > 0) {
+                // Find all users who have these folders in their assignedFolders
+                const usersSnap = await firebase_1.db.collection('users')
+                    .where('tenantId', '==', tenantId)
+                    .where('role', '==', 'supplier')
+                    .get();
+                usersSnap.docs.forEach(userDoc => {
+                    const userData = userDoc.data();
+                    const assignedFolders = userData.assignedFolders || [];
+                    assignedFolders.forEach((folderId) => {
+                        if (folderIds.includes(folderId)) {
+                            if (!sharingInfo[folderId]) {
+                                sharingInfo[folderId] = [];
+                            }
+                            sharingInfo[folderId].push({
+                                id: userDoc.id,
+                                displayName: userData.displayName,
+                                email: userData.email,
+                            });
+                        }
+                    });
+                });
+            }
             const folders = snapshot.docs.map((doc) => {
                 var _a, _b, _c, _d, _e, _f;
                 const data = doc.data();
-                return Object.assign(Object.assign({ id: doc.id }, data), { createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt });
+                return Object.assign(Object.assign({ id: doc.id }, data), { createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt, sharedWith: sharingInfo[doc.id] || [] });
             });
             return res.json({ folders, count: folders.length });
         }
         // For 'all', skip orderBy to avoid needing extra index
         const snapshot = await query.get();
+        const folderIds = snapshot.docs.map(doc => doc.id);
+        // Get sharing information for all folders
+        const sharingInfo = {};
+        if (folderIds.length > 0) {
+            const usersSnap = await firebase_1.db.collection('users')
+                .where('tenantId', '==', tenantId)
+                .where('role', '==', 'supplier')
+                .get();
+            usersSnap.docs.forEach(userDoc => {
+                const userData = userDoc.data();
+                const assignedFolders = userData.assignedFolders || [];
+                assignedFolders.forEach((folderId) => {
+                    if (folderIds.includes(folderId)) {
+                        if (!sharingInfo[folderId]) {
+                            sharingInfo[folderId] = [];
+                        }
+                        sharingInfo[folderId].push({
+                            id: userDoc.id,
+                            displayName: userData.displayName,
+                            email: userData.email,
+                        });
+                    }
+                });
+            });
+        }
         const folders = snapshot.docs.map((doc) => {
             var _a, _b, _c, _d, _e, _f;
             const data = doc.data();
-            return Object.assign(Object.assign({ id: doc.id }, data), { createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt });
+            return Object.assign(Object.assign({ id: doc.id }, data), { createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt, sharedWith: sharingInfo[doc.id] || [] });
         });
         res.json({ folders, count: folders.length });
     }

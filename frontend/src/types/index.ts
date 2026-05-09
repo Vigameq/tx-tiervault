@@ -61,6 +61,11 @@ export interface Folder {
   createdBy: string
   createdAt: Date
   updatedAt: Date
+  sharedWith?: Array<{
+    id: string
+    displayName: string
+    email: string
+  }>
 }
 
 export interface AuditLog {

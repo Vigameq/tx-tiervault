@@ -117,6 +117,37 @@ router.get('/', authenticate, async (req, res) => {
       }
       const snapshot = await query.orderBy('createdAt', 'desc').get();
 
+      const folderIds = snapshot.docs.map(doc => doc.id);
+
+      // Get sharing information for all folders
+      const sharingInfo: Record<string, Array<{id: string, displayName: string, email: string}>> = {};
+
+      if (folderIds.length > 0) {
+        // Find all users who have these folders in their assignedFolders
+        const usersSnap = await db.collection('users')
+          .where('tenantId', '==', tenantId)
+          .where('role', '==', 'supplier')
+          .get();
+
+        usersSnap.docs.forEach(userDoc => {
+          const userData = userDoc.data();
+          const assignedFolders = userData.assignedFolders || [];
+
+          assignedFolders.forEach((folderId: string) => {
+            if (folderIds.includes(folderId)) {
+              if (!sharingInfo[folderId]) {
+                sharingInfo[folderId] = [];
+              }
+              sharingInfo[folderId].push({
+                id: userDoc.id,
+                displayName: userData.displayName,
+                email: userData.email,
+              });
+            }
+          });
+        });
+      }
+
       const folders = snapshot.docs.map((doc) => {
         const data = doc.data();
         return {
@@ -124,6 +155,7 @@ router.get('/', authenticate, async (req, res) => {
           ...data,
           createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
           updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
+          sharedWith: sharingInfo[doc.id] || [],
         };
       });
 
@@ -133,6 +165,36 @@ router.get('/', authenticate, async (req, res) => {
     // For 'all', skip orderBy to avoid needing extra index
     const snapshot = await query.get();
 
+    const folderIds = snapshot.docs.map(doc => doc.id);
+
+    // Get sharing information for all folders
+    const sharingInfo: Record<string, Array<{id: string, displayName: string, email: string}>> = {};
+
+    if (folderIds.length > 0) {
+      const usersSnap = await db.collection('users')
+        .where('tenantId', '==', tenantId)
+        .where('role', '==', 'supplier')
+        .get();
+
+      usersSnap.docs.forEach(userDoc => {
+        const userData = userDoc.data();
+        const assignedFolders = userData.assignedFolders || [];
+
+        assignedFolders.forEach((folderId: string) => {
+          if (folderIds.includes(folderId)) {
+            if (!sharingInfo[folderId]) {
+              sharingInfo[folderId] = [];
+            }
+            sharingInfo[folderId].push({
+              id: userDoc.id,
+              displayName: userData.displayName,
+              email: userData.email,
+            });
+          }
+        });
+      });
+    }
+
     const folders = snapshot.docs.map((doc) => {
       const data = doc.data();
       return {
@@ -140,6 +202,7 @@ router.get('/', authenticate, async (req, res) => {
         ...data,
         createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
         updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
+        sharedWith: sharingInfo[doc.id] || [],
       };
     });
 

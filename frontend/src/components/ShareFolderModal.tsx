@@ -68,7 +68,8 @@ export default function ShareFolderModal({ folder, onClose, onSuccess }: ShareFo
       await shareFolderWithUsers(folder.id, selectedSuppliers)
       toast.success(`Folder shared with ${selectedSuppliers.length} supplier(s)`)
       setSelectedSuppliers([])
-      fetchData() // Refresh the shared list
+      fetchData() // Refresh the shared list in modal
+      onSuccess() // Refresh the parent folders list
     } catch (error: any) {
       console.error('Error sharing folder:', error)
       toast.error(error.message || 'Failed to share folder')
@@ -84,7 +85,8 @@ export default function ShareFolderModal({ folder, onClose, onSuccess }: ShareFo
       const { unshareFolderFromUsers } = await import('@/utils/api')
       await unshareFolderFromUsers(folder.id, [userId])
       toast.success('Access removed successfully')
-      fetchData() // Refresh the shared list
+      fetchData() // Refresh the shared list in modal
+      onSuccess() // Refresh the parent folders list
     } catch (error: any) {
       console.error('Error unsharing folder:', error)
       toast.error(error.message || 'Failed to remove access')
