@@ -1,4 +1,5 @@
 import express from 'express';
+import * as admin from 'firebase-admin';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { db } from '../config/firebase';
 
@@ -10,18 +11,78 @@ const router = express.Router();
 router.get('/dashboard', authenticate, async (req: AuthRequest, res) => {
   try {
     const tenantId = req.user!.tenantId;
+    const userId = req.user!.uid;
+    const userRole = req.user!.role;
 
-    // Parallel queries for better performance
-    const [
-      documentsSnap,
-      foldersSnap,
-      versionsSnap,
-      commentsSnap,
-      auditLogsSnap,
-      usersSnap,
-    ] = await Promise.all([
-      db.collection('documents').where('tenantId', '==', tenantId).get(),
-      db.collection('folders').where('tenantId', '==', tenantId).get(),
+    // Admin sees everything, others see only their own data + shared data
+    let documentsSnap;
+    let foldersSnap;
+
+    if (userRole === 'admin') {
+      // Admin sees all documents and folders
+      [documentsSnap, foldersSnap] = await Promise.all([
+        db.collection('documents').where('tenantId', '==', tenantId).get(),
+        db.collection('folders').where('tenantId', '==', tenantId).get(),
+      ]);
+    } else {
+      // Non-admin: fetch owned documents + documents in shared folders
+      const userDoc = await db.collection('users').doc(userId).get();
+      const userData = userDoc.data();
+      const sharedFolderIds = userData?.assignedFolders || [];
+
+      // Get owned folders
+      const ownedFoldersSnap = await db.collection('folders')
+        .where('tenantId', '==', tenantId)
+        .where('createdBy', '==', userId)
+        .get();
+
+      let allFolderDocs = [...ownedFoldersSnap.docs];
+
+      // Fetch shared folders in batches
+      if (sharedFolderIds.length > 0) {
+        for (let i = 0; i < sharedFolderIds.length; i += 10) {
+          const batch = sharedFolderIds.slice(i, i + 10);
+          const sharedSnap = await db.collection('folders')
+            .where(admin.firestore.FieldPath.documentId(), 'in', batch)
+            .get();
+          allFolderDocs.push(...sharedSnap.docs);
+        }
+      }
+
+      foldersSnap = { docs: allFolderDocs };
+
+      // Get owned documents
+      const ownedDocsSnap = await db.collection('documents')
+        .where('tenantId', '==', tenantId)
+        .where('createdBy', '==', userId)
+        .get();
+
+      // Get documents in accessible folders (owned + shared)
+      const accessibleFolderIds = allFolderDocs.map(doc => doc.id);
+      let docsInFolders: any[] = [];
+
+      if (accessibleFolderIds.length > 0) {
+        for (let i = 0; i < accessibleFolderIds.length; i += 10) {
+          const batch = accessibleFolderIds.slice(i, i + 10);
+          const folderDocsSnap = await db.collection('documents')
+            .where('tenantId', '==', tenantId)
+            .where('folderId', 'in', batch)
+            .get();
+          docsInFolders.push(...folderDocsSnap.docs);
+        }
+      }
+
+      // Combine and deduplicate documents
+      const allDocDocs = [...ownedDocsSnap.docs, ...docsInFolders];
+      const uniqueDocDocs = Array.from(
+        new Map(allDocDocs.map(doc => [doc.id, doc])).values()
+      );
+
+      documentsSnap = { docs: uniqueDocDocs };
+    }
+
+    // Continue with other queries
+    const [versionsSnap, commentsSnap, auditLogsSnap, usersSnap] = await Promise.all([
       db.collection('documentVersions').get(),
       db.collection('comments').where('tenantId', '==', tenantId).get(),
       db.collection('auditLogs').where('tenantId', '==', tenantId).get(),
@@ -80,10 +141,16 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res) => {
         };
       });
 
-    // Comments statistics
-    const totalComments = commentsSnap.size;
+    // Comments statistics - only for accessible documents
+    const accessibleDocIds = new Set(documents.map((d: any) => d.id));
+    const accessibleComments = commentsSnap.docs.filter((doc) => {
+      const data = doc.data();
+      return accessibleDocIds.has(data.documentId);
+    });
+
+    const totalComments = accessibleComments.length;
     const commentsByDoc: Record<string, number> = {};
-    commentsSnap.docs.forEach((doc) => {
+    accessibleComments.forEach((doc) => {
       const data = doc.data();
       const docId = data.documentId;
       commentsByDoc[docId] = (commentsByDoc[docId] || 0) + 1;
@@ -101,25 +168,38 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res) => {
         };
       });
 
-    // Recent comments (last 7 days)
-    const recentComments = commentsSnap.docs.filter((doc) => {
+    // Recent comments (last 7 days) - only accessible
+    const recentComments = accessibleComments.filter((doc) => {
       const data = doc.data();
       const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
       return createdAt >= sevenDaysAgo;
     }).length;
 
-    // Audit logs analysis
+    // Audit logs analysis - only for accessible resources
+    const accessibleFolderIds = new Set(foldersSnap.docs.map((doc: any) => doc.id));
     const activityByType: Record<string, number> = {};
     const activityByUser: Record<string, number> = {};
     const recentActivity: any[] = [];
 
     auditLogsSnap.docs.forEach((doc) => {
       const data = doc.data();
+
+      // Filter: only include logs for accessible documents/folders or user's own actions
+      const isAccessibleResource =
+        (data.resourceType === 'document' && accessibleDocIds.has(data.resourceId)) ||
+        (data.resourceType === 'folder' && accessibleFolderIds.has(data.resourceId)) ||
+        (!data.resourceType) || // General tenant actions
+        (data.userId === userId); // User's own actions
+
+      if (!isAccessibleResource) {
+        return; // Skip this log entry
+      }
+
       const action = data.action || 'unknown';
-      const userId = data.userId || 'unknown';
+      const logUserId = data.userId || 'unknown';
 
       activityByType[action] = (activityByType[action] || 0) + 1;
-      activityByUser[userId] = (activityByUser[userId] || 0) + 1;
+      activityByUser[logUserId] = (activityByUser[logUserId] || 0) + 1;
 
       const timestamp = data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.timestamp);
       if (timestamp >= sevenDaysAgo) {
@@ -157,13 +237,13 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res) => {
     );
     const activeUsersToday = activeUserIds.size;
 
-    // Most viewed/downloaded documents
+    // Most viewed/downloaded documents - only accessible ones
     const documentViews: Record<string, number> = {};
     const documentDownloads: Record<string, number> = {};
 
     auditLogsSnap.docs.forEach((doc) => {
       const data = doc.data();
-      if (data.resourceType === 'document' && data.resourceId) {
+      if (data.resourceType === 'document' && data.resourceId && accessibleDocIds.has(data.resourceId)) {
         if (data.action === 'view' || data.action === 'preview') {
           documentViews[data.resourceId] = (documentViews[data.resourceId] || 0) + 1;
         } else if (data.action === 'download') {
