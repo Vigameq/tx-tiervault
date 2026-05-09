@@ -122,18 +122,48 @@ router.get('/', auth_1.authenticate, async (req, res) => {
             });
             return res.json({ folders, count: folders.length });
         }
-        // For non-suppliers: normal access
+        // For non-suppliers: ownership-based access
         let query = firebase_1.db.collection('folders').where('tenantId', '==', tenantId);
-        // If 'all' parameter is set, return all folders regardless of parent
-        // Otherwise, filter by parentId
-        if (!all) {
+        // Admin sees everything, others see only their own folders + shared folders
+        if (req.user.role !== 'admin') {
+            // Get folders shared with this user (from their assignedFolders)
+            const userDoc = await firebase_1.db.collection('users').doc(req.user.uid).get();
+            const userData = userDoc.data();
+            const sharedFolderIds = (userData === null || userData === void 0 ? void 0 : userData.assignedFolders) || [];
+            // Fetch owned folders and shared folders separately, then merge
+            const ownedFoldersSnap = await firebase_1.db.collection('folders')
+                .where('tenantId', '==', tenantId)
+                .where('createdBy', '==', req.user.uid)
+                .get();
+            let allFolderDocs = [...ownedFoldersSnap.docs];
+            // Fetch shared folders in batches (Firestore 'in' limit is 10)
+            if (sharedFolderIds.length > 0) {
+                for (let i = 0; i < sharedFolderIds.length; i += 10) {
+                    const batch = sharedFolderIds.slice(i, i + 10);
+                    const sharedSnap = await firebase_1.db.collection('folders')
+                        .where(admin.firestore.FieldPath.documentId(), 'in', batch)
+                        .get();
+                    allFolderDocs.push(...sharedSnap.docs);
+                }
+            }
+            // Remove duplicates
+            const uniqueFolderDocs = Array.from(new Map(allFolderDocs.map(doc => [doc.id, doc])).values());
+            // Filter by parentId
+            let filteredDocs = uniqueFolderDocs;
             if (parentId) {
-                query = query.where('parentId', '==', parentId);
+                filteredDocs = filteredDocs.filter(doc => doc.data().parentId === parentId);
             }
             else {
-                query = query.where('parentId', '==', null);
+                filteredDocs = filteredDocs.filter(doc => doc.data().parentId === null || doc.data().parentId === undefined);
             }
-            const snapshot = await query.orderBy('createdAt', 'desc').get();
+            // Sort by createdAt descending
+            filteredDocs.sort((a, b) => {
+                var _a, _b;
+                const aTime = ((_a = a.data().createdAt) === null || _a === void 0 ? void 0 : _a.toMillis()) || 0;
+                const bTime = ((_b = b.data().createdAt) === null || _b === void 0 ? void 0 : _b.toMillis()) || 0;
+                return bTime - aTime;
+            });
+            const snapshot = { docs: filteredDocs };
             const folderIds = snapshot.docs.map(doc => doc.id);
             // Get sharing information for all folders
             const sharingInfo = {};
@@ -167,39 +197,133 @@ router.get('/', auth_1.authenticate, async (req, res) => {
             });
             return res.json({ folders, count: folders.length });
         }
-        // For 'all', skip orderBy to avoid needing extra index
-        const snapshot = await query.get();
-        const folderIds = snapshot.docs.map(doc => doc.id);
-        // Get sharing information for all folders
-        const sharingInfo = {};
-        if (folderIds.length > 0) {
-            const usersSnap = await firebase_1.db.collection('users')
-                .where('tenantId', '==', tenantId)
-                .where('role', '==', 'supplier')
-                .get();
-            usersSnap.docs.forEach(userDoc => {
-                const userData = userDoc.data();
-                const assignedFolders = userData.assignedFolders || [];
-                assignedFolders.forEach((folderId) => {
-                    if (folderIds.includes(folderId)) {
-                        if (!sharingInfo[folderId]) {
-                            sharingInfo[folderId] = [];
+        else {
+            // Admin path: see all folders
+            if (parentId) {
+                query = query.where('parentId', '==', parentId);
+            }
+            else {
+                query = query.where('parentId', '==', null);
+            }
+            const snapshot = await query.orderBy('createdAt', 'desc').get();
+            const folderIds = snapshot.docs.map(doc => doc.id);
+            // Get sharing information for all folders
+            const sharingInfo = {};
+            if (folderIds.length > 0) {
+                const usersSnap = await firebase_1.db.collection('users')
+                    .where('tenantId', '==', tenantId)
+                    .where('role', '==', 'supplier')
+                    .get();
+                usersSnap.docs.forEach(userDoc => {
+                    const userData = userDoc.data();
+                    const assignedFolders = userData.assignedFolders || [];
+                    assignedFolders.forEach((folderId) => {
+                        if (folderIds.includes(folderId)) {
+                            if (!sharingInfo[folderId]) {
+                                sharingInfo[folderId] = [];
+                            }
+                            sharingInfo[folderId].push({
+                                id: userDoc.id,
+                                displayName: userData.displayName,
+                                email: userData.email,
+                            });
                         }
-                        sharingInfo[folderId].push({
-                            id: userDoc.id,
-                            displayName: userData.displayName,
-                            email: userData.email,
-                        });
-                    }
+                    });
                 });
+            }
+            const folders = snapshot.docs.map((doc) => {
+                var _a, _b, _c, _d, _e, _f;
+                const data = doc.data();
+                return Object.assign(Object.assign({ id: doc.id }, data), { createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt, sharedWith: sharingInfo[doc.id] || [] });
             });
+            return res.json({ folders, count: folders.length });
         }
-        const folders = snapshot.docs.map((doc) => {
-            var _a, _b, _c, _d, _e, _f;
-            const data = doc.data();
-            return Object.assign(Object.assign({ id: doc.id }, data), { createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt, sharedWith: sharingInfo[doc.id] || [] });
-        });
-        res.json({ folders, count: folders.length });
+        // For 'all' parameter, fetch all folders (admin sees all, others see owned+shared)
+        if (req.user.role === 'admin') {
+            const snapshot = await query.get();
+            const folderIds = snapshot.docs.map(doc => doc.id);
+            // Get sharing information for all folders
+            const sharingInfo = {};
+            if (folderIds.length > 0) {
+                const usersSnap = await firebase_1.db.collection('users')
+                    .where('tenantId', '==', tenantId)
+                    .where('role', '==', 'supplier')
+                    .get();
+                usersSnap.docs.forEach(userDoc => {
+                    const userData = userDoc.data();
+                    const assignedFolders = userData.assignedFolders || [];
+                    assignedFolders.forEach((folderId) => {
+                        if (folderIds.includes(folderId)) {
+                            if (!sharingInfo[folderId]) {
+                                sharingInfo[folderId] = [];
+                            }
+                            sharingInfo[folderId].push({
+                                id: userDoc.id,
+                                displayName: userData.displayName,
+                                email: userData.email,
+                            });
+                        }
+                    });
+                });
+            }
+            const folders = snapshot.docs.map((doc) => {
+                var _a, _b, _c, _d, _e, _f;
+                const data = doc.data();
+                return Object.assign(Object.assign({ id: doc.id }, data), { createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt, sharedWith: sharingInfo[doc.id] || [] });
+            });
+            return res.json({ folders, count: folders.length });
+        }
+        else {
+            // Non-admin: fetch owned + shared folders (all=true, no parent filter)
+            const userDoc = await firebase_1.db.collection('users').doc(req.user.uid).get();
+            const userData = userDoc.data();
+            const sharedFolderIds = (userData === null || userData === void 0 ? void 0 : userData.assignedFolders) || [];
+            const ownedFoldersSnap = await firebase_1.db.collection('folders')
+                .where('tenantId', '==', tenantId)
+                .where('createdBy', '==', req.user.uid)
+                .get();
+            let allFolderDocs = [...ownedFoldersSnap.docs];
+            if (sharedFolderIds.length > 0) {
+                for (let i = 0; i < sharedFolderIds.length; i += 10) {
+                    const batch = sharedFolderIds.slice(i, i + 10);
+                    const sharedSnap = await firebase_1.db.collection('folders')
+                        .where(admin.firestore.FieldPath.documentId(), 'in', batch)
+                        .get();
+                    allFolderDocs.push(...sharedSnap.docs);
+                }
+            }
+            const uniqueFolderDocs = Array.from(new Map(allFolderDocs.map(doc => [doc.id, doc])).values());
+            const folderIds = uniqueFolderDocs.map(doc => doc.id);
+            const sharingInfo = {};
+            if (folderIds.length > 0) {
+                const usersSnap = await firebase_1.db.collection('users')
+                    .where('tenantId', '==', tenantId)
+                    .where('role', '==', 'supplier')
+                    .get();
+                usersSnap.docs.forEach(userDoc => {
+                    const userData = userDoc.data();
+                    const assignedFolders = userData.assignedFolders || [];
+                    assignedFolders.forEach((folderId) => {
+                        if (folderIds.includes(folderId)) {
+                            if (!sharingInfo[folderId]) {
+                                sharingInfo[folderId] = [];
+                            }
+                            sharingInfo[folderId].push({
+                                id: userDoc.id,
+                                displayName: userData.displayName,
+                                email: userData.email,
+                            });
+                        }
+                    });
+                });
+            }
+            const folders = uniqueFolderDocs.map((doc) => {
+                var _a, _b, _c, _d, _e, _f;
+                const data = doc.data();
+                return Object.assign(Object.assign({ id: doc.id }, data), { createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt, sharedWith: sharingInfo[doc.id] || [] });
+            });
+            return res.json({ folders, count: folders.length });
+        }
     }
     catch (error) {
         console.error('Get folders error:', error);

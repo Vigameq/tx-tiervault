@@ -126,7 +126,23 @@ const Layout = ({ children }: LayoutProps) => {
         </div>
 
         {/* Page content */}
-        <main className="p-6">{children}</main>
+        <main className="p-6 min-h-[calc(100vh-8rem)]">{children}</main>
+
+        {/* Footer */}
+        <footer className="bg-white border-t mt-auto">
+          <div className="px-6 py-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between text-sm text-gray-600">
+              <div className="flex items-center gap-2 mb-2 sm:mb-0">
+                <span>Version v1.0.0</span>
+                <span className="hidden sm:inline">•</span>
+                <span>© 2026 TierVault</span>
+              </div>
+              <div className="text-center sm:text-right">
+                Developed by <span className="font-medium text-gray-900">TierX DCS</span>
+              </div>
+            </div>
+          </div>
+        </footer>
       </div>
     </div>
   )

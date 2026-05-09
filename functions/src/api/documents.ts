@@ -296,44 +296,106 @@ router.get('/', authenticate, async (req, res) => {
       return res.json({ documents, count: documents.length });
     }
 
-    // For non-suppliers: normal access (all documents in tenant)
-    let query = db
-      .collection('documents')
-      .where('tenantId', '==', req.user!.tenantId);
+    // For non-suppliers: ownership-based access
+    // Admin sees all, others see only owned documents + documents in shared folders
+    if (req.user!.role === 'admin') {
+      // Admin sees everything
+      let query = db
+        .collection('documents')
+        .where('tenantId', '==', req.user!.tenantId);
 
-    // Filter by folder - if folderId is provided, show only documents in that folder
-    // If no folderId, show only root-level documents (where folderId is null)
-    if (folderId) {
-      query = query.where('folderId', '==', folderId);
+      // Filter by folder - if folderId is provided, show only documents in that folder
+      // If no folderId, show only root-level documents (where folderId is null)
+      if (folderId) {
+        query = query.where('folderId', '==', folderId);
+      } else {
+        query = query.where('folderId', '==', null);
+      }
+
+      const snapshot = await query.orderBy('createdAt', 'desc').get();
+
+      // Fetch version counts for all documents
+      const documents = await Promise.all(
+        snapshot.docs.map(async (doc) => {
+          const data = doc.data();
+
+          // Get version count for this document
+          const versionsSnap = await db
+            .collection('documentVersions')
+            .where('documentId', '==', doc.id)
+            .get();
+
+          return {
+            id: doc.id,
+            ...data,
+            versionCount: versionsSnap.size,
+            // Convert Firestore Timestamps to ISO strings for frontend
+            createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+            updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
+          };
+        })
+      );
+
+      return res.json({ documents, count: documents.length });
     } else {
-      query = query.where('folderId', '==', null);
-    }
+      // Non-admin: see only owned documents + documents in shared folders
+      const userDoc = await db.collection('users').doc(req.user!.uid).get();
+      const userData = userDoc.data();
+      const sharedFolderIds = userData?.assignedFolders || [];
 
-    const snapshot = await query.orderBy('createdAt', 'desc').get();
+      // Get documents owned by user OR in shared folders
+      let ownedDocsSnap;
+      if (folderId) {
+        // Check if user has access to this folder
+        const folderDoc = await db.collection('folders').doc(folderId as string).get();
+        if (!folderDoc.exists) {
+          return res.status(404).json({ error: 'Folder not found' });
+        }
+        const folderData = folderDoc.data();
+        const hasAccess = folderData?.createdBy === req.user!.uid ||
+                         sharedFolderIds.includes(folderId as string);
 
-    // Fetch version counts for all documents
-    const documents = await Promise.all(
-      snapshot.docs.map(async (doc) => {
-        const data = doc.data();
+        if (!hasAccess) {
+          return res.status(403).json({ error: 'Access denied to this folder' });
+        }
 
-        // Get version count for this document
-        const versionsSnap = await db
-          .collection('documentVersions')
-          .where('documentId', '==', doc.id)
+        // Fetch documents in this folder
+        ownedDocsSnap = await db.collection('documents')
+          .where('tenantId', '==', req.user!.tenantId)
+          .where('folderId', '==', folderId)
+          .orderBy('createdAt', 'desc')
           .get();
+      } else {
+        // Root level: fetch owned documents + documents in shared folders
+        ownedDocsSnap = await db.collection('documents')
+          .where('tenantId', '==', req.user!.tenantId)
+          .where('createdBy', '==', req.user!.uid)
+          .where('folderId', '==', null)
+          .orderBy('createdAt', 'desc')
+          .get();
+      }
 
-        return {
-          id: doc.id,
-          ...data,
-          versionCount: versionsSnap.size,
-          // Convert Firestore Timestamps to ISO strings for frontend
-          createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
-          updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
-        };
-      })
-    );
+      const documents = await Promise.all(
+        ownedDocsSnap.docs.map(async (doc) => {
+          const data = doc.data();
 
-    res.json({ documents, count: documents.length });
+          const versionsSnap = await db
+            .collection('documentVersions')
+            .where('documentId', '==', doc.id)
+            .get();
+
+          return {
+            id: doc.id,
+            ...data,
+            versionCount: versionsSnap.size,
+            createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+            updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
+          };
+        })
+      );
+
+      return res.json({ documents, count: documents.length });
+    }
   } catch (error: any) {
     console.error('Get documents error:', error);
     res.status(500).json({ error: error.message });

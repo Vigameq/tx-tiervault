@@ -272,33 +272,83 @@ router.get('/', auth_1.authenticate, async (req, res) => {
             }));
             return res.json({ documents, count: documents.length });
         }
-        // For non-suppliers: normal access (all documents in tenant)
-        let query = firebase_1.db
-            .collection('documents')
-            .where('tenantId', '==', req.user.tenantId);
-        // Filter by folder - if folderId is provided, show only documents in that folder
-        // If no folderId, show only root-level documents (where folderId is null)
-        if (folderId) {
-            query = query.where('folderId', '==', folderId);
+        // For non-suppliers: ownership-based access
+        // Admin sees all, others see only owned documents + documents in shared folders
+        if (req.user.role === 'admin') {
+            // Admin sees everything
+            let query = firebase_1.db
+                .collection('documents')
+                .where('tenantId', '==', req.user.tenantId);
+            // Filter by folder - if folderId is provided, show only documents in that folder
+            // If no folderId, show only root-level documents (where folderId is null)
+            if (folderId) {
+                query = query.where('folderId', '==', folderId);
+            }
+            else {
+                query = query.where('folderId', '==', null);
+            }
+            const snapshot = await query.orderBy('createdAt', 'desc').get();
+            // Fetch version counts for all documents
+            const documents = await Promise.all(snapshot.docs.map(async (doc) => {
+                var _a, _b, _c, _d, _e, _f;
+                const data = doc.data();
+                // Get version count for this document
+                const versionsSnap = await firebase_1.db
+                    .collection('documentVersions')
+                    .where('documentId', '==', doc.id)
+                    .get();
+                return Object.assign(Object.assign({ id: doc.id }, data), { versionCount: versionsSnap.size, 
+                    // Convert Firestore Timestamps to ISO strings for frontend
+                    createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt });
+            }));
+            return res.json({ documents, count: documents.length });
         }
         else {
-            query = query.where('folderId', '==', null);
+            // Non-admin: see only owned documents + documents in shared folders
+            const userDoc = await firebase_1.db.collection('users').doc(req.user.uid).get();
+            const userData = userDoc.data();
+            const sharedFolderIds = (userData === null || userData === void 0 ? void 0 : userData.assignedFolders) || [];
+            // Get documents owned by user OR in shared folders
+            let ownedDocsSnap;
+            if (folderId) {
+                // Check if user has access to this folder
+                const folderDoc = await firebase_1.db.collection('folders').doc(folderId).get();
+                if (!folderDoc.exists) {
+                    return res.status(404).json({ error: 'Folder not found' });
+                }
+                const folderData = folderDoc.data();
+                const hasAccess = (folderData === null || folderData === void 0 ? void 0 : folderData.createdBy) === req.user.uid ||
+                    sharedFolderIds.includes(folderId);
+                if (!hasAccess) {
+                    return res.status(403).json({ error: 'Access denied to this folder' });
+                }
+                // Fetch documents in this folder
+                ownedDocsSnap = await firebase_1.db.collection('documents')
+                    .where('tenantId', '==', req.user.tenantId)
+                    .where('folderId', '==', folderId)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+            }
+            else {
+                // Root level: fetch owned documents + documents in shared folders
+                ownedDocsSnap = await firebase_1.db.collection('documents')
+                    .where('tenantId', '==', req.user.tenantId)
+                    .where('createdBy', '==', req.user.uid)
+                    .where('folderId', '==', null)
+                    .orderBy('createdAt', 'desc')
+                    .get();
+            }
+            const documents = await Promise.all(ownedDocsSnap.docs.map(async (doc) => {
+                var _a, _b, _c, _d, _e, _f;
+                const data = doc.data();
+                const versionsSnap = await firebase_1.db
+                    .collection('documentVersions')
+                    .where('documentId', '==', doc.id)
+                    .get();
+                return Object.assign(Object.assign({ id: doc.id }, data), { versionCount: versionsSnap.size, createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt });
+            }));
+            return res.json({ documents, count: documents.length });
         }
-        const snapshot = await query.orderBy('createdAt', 'desc').get();
-        // Fetch version counts for all documents
-        const documents = await Promise.all(snapshot.docs.map(async (doc) => {
-            var _a, _b, _c, _d, _e, _f;
-            const data = doc.data();
-            // Get version count for this document
-            const versionsSnap = await firebase_1.db
-                .collection('documentVersions')
-                .where('documentId', '==', doc.id)
-                .get();
-            return Object.assign(Object.assign({ id: doc.id }, data), { versionCount: versionsSnap.size, 
-                // Convert Firestore Timestamps to ISO strings for frontend
-                createdAt: ((_c = (_b = (_a = data.createdAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) === null || _c === void 0 ? void 0 : _c.toISOString()) || data.createdAt, updatedAt: ((_f = (_e = (_d = data.updatedAt) === null || _d === void 0 ? void 0 : _d.toDate) === null || _e === void 0 ? void 0 : _e.call(_d)) === null || _f === void 0 ? void 0 : _f.toISOString()) || data.updatedAt });
-        }));
-        res.json({ documents, count: documents.length });
     }
     catch (error) {
         console.error('Get documents error:', error);
