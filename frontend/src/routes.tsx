@@ -20,7 +20,11 @@ const PageLoader = () => (
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user } = useAuthStore()
+  const { user, loading } = useAuthStore()
+
+  if (loading) {
+    return <PageLoader />
+  }
 
   if (!user) {
     return <Navigate to="/login" replace />
@@ -31,7 +35,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 // Public Route wrapper (redirect to dashboard if logged in)
 const PublicRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user } = useAuthStore()
+  const { user, loading } = useAuthStore()
+
+  if (loading) {
+    return <PageLoader />
+  }
 
   if (user) {
     return <Navigate to="/dashboard" replace />
