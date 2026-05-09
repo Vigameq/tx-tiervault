@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence } from 'firebase/auth'
+import { getAuth, connectAuthEmulator, setPersistence, inMemoryPersistence } from 'firebase/auth'
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
 
@@ -20,8 +20,10 @@ export const auth = getAuth(app)
 export const db = getFirestore(app)
 export const functions = getFunctions(app)
 
-// Set auth persistence to LOCAL (survives page refresh and browser close)
-setPersistence(auth, browserLocalPersistence).catch((error) => {
+// Set auth persistence to NONE (in-memory only)
+// User must login again after refreshing page or closing browser
+// Auth session clears on any page reload
+setPersistence(auth, inMemoryPersistence).catch((error) => {
   console.error('Error setting auth persistence:', error)
 })
 
